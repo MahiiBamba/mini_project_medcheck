@@ -1,0 +1,8 @@
+path: /home/mansi/Desktop/mini_project/blister_dataset
+
+train: images/train
+val: images/val
+
+names:
+  0: intact
+  1: broken
