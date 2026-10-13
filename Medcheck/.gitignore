@@ -1,0 +1,16 @@
+node_modules/
+dist/
+dist-ssr/
+*.local
+.env
+.env.*
+!.env.example
+server/.env
+server/*.db
+server/*.db-*
+server/*.sqlite
+server/*.sqlite-*
+.vscode/
+.idea/
+.DS_Store
+*.log
