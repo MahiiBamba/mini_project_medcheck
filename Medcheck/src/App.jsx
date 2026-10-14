@@ -199,6 +199,44 @@ async function addMedicine(event) {
   }
 }
 
+async function analyzeScanImage() {
+  if (!scanImage || scanLoading) return
+
+  setScanLoading(true)
+  setScanError('')
+  setScanResult(null)
+
+  try {
+    const formData = new FormData()
+    formData.append('file', scanImage)
+
+    const response = await fetch(
+      'http://localhost:5000/api/analyze-blister',
+      {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      }
+    )
+
+    const result = await response.json()
+
+    if (!response.ok) {
+      throw new Error(
+        result.error || 'Unable to analyze the image.'
+      )
+    }
+
+    setScanResult(result.data)
+  } catch (error) {
+    setScanError(
+      error.message || 'Could not connect to the AI service.'
+    )
+  } finally {
+    setScanLoading(false)
+  }
+}
+
 async function markAsTaken(id) {
   try {
     const response = await fetch(
@@ -854,11 +892,7 @@ if (!user) {
         <button
           type="button"
           disabled={!scanImage || scanLoading}
-          onClick={() => {
-            setScanError(
-              'Image selected successfully. The AI model connection is not configured yet.'
-            )
-          }}
+          onClick={analyzeScanImage}
           className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-gray-900 px-5 py-4 font-semibold text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:bg-gray-300"
         >
           <span>✧</span>
@@ -884,16 +918,235 @@ if (!user) {
     </div>
 
     {/* Results */}
-    {scanResult && (
-      <div className="rounded-2xl border border-green-200 bg-green-50 p-5">
-        <h3 className="font-semibold text-green-900">
+    
+
+{scanResult && (
+  <section className="space-y-6">
+
+    {/* Results header */}
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <p className="text-sm font-semibold uppercase tracking-wider text-teal-700">
+          AI Analysis Report
+        </p>
+        <h3 className="mt-1 text-2xl font-bold text-slate-900">
           Scan Results
         </h3>
-        <pre className="mt-3 whitespace-pre-wrap text-sm text-gray-700">
-          {JSON.stringify(scanResult, null, 2)}
-        </pre>
+        <p className="mt-1 text-sm text-slate-500">
+          Image analysis completed using your trained YOLOv8 model.
+        </p>
+      </div>
+
+      <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">
+        <span className="h-2 w-2 rounded-full bg-emerald-500" />
+        Analysis complete
+      </span>
+    </div>
+
+    {/* Summary cards */}
+    <div className="grid gap-4 sm:grid-cols-3">
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium text-slate-500">
+            Total detections
+          </p>
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-xl">
+            ◉
+          </span>
+        </div>
+        <p className="mt-4 text-3xl font-bold text-slate-900">
+          {scanResult.total_detections ?? 0}
+        </p>
+        <p className="mt-1 text-xs text-slate-500">
+          Cavities identified in the image
+        </p>
+      </div>
+
+      <div className="rounded-2xl border border-emerald-200 bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium text-slate-500">
+            Intact cavities
+          </p>
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-xl text-emerald-700">
+            ✓
+          </span>
+        </div>
+        <p className="mt-4 text-3xl font-bold text-emerald-700">
+          {scanResult.counts?.intact ?? 0}
+        </p>
+        <p className="mt-1 text-xs text-slate-500">
+          Predicted as intact by the model
+        </p>
+      </div>
+
+      <div className="rounded-2xl border border-orange-200 bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium text-slate-500">
+            Broken cavities
+          </p>
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-50 text-xl text-orange-700">
+            !
+          </span>
+        </div>
+        <p className="mt-4 text-3xl font-bold text-orange-700">
+          {scanResult.counts?.broken ?? 0}
+        </p>
+        <p className="mt-1 text-xs text-slate-500">
+          Predicted as broken by the model
+        </p>
+      </div>
+
+    </div>
+
+    {/* Annotated image */}
+    {scanResult.annotated_image && (
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4 sm:px-6">
+          <div>
+            <h4 className="font-bold text-slate-900">
+              Detection Visualization
+            </h4>
+            <p className="mt-1 text-xs text-slate-500">
+              Model-generated bounding boxes and class labels
+            </p>
+          </div>
+
+          <span className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600">
+            YOLOv8
+          </span>
+        </div>
+
+        <div className="bg-slate-50 p-3 sm:p-6">
+          <img
+            src={`http://127.0.0.1:8000${scanResult.annotated_image}`}
+            alt="YOLOv8 annotated blister pack detection"
+            className="mx-auto max-h-[600px] w-full rounded-xl border border-slate-200 bg-white object-contain"
+          />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-slate-100 px-5 py-4 text-xs text-slate-600 sm:px-6">
+          <span className="flex items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+            Intact prediction
+          </span>
+          <span className="flex items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-full bg-orange-500" />
+            Broken prediction
+          </span>
+        </div>
       </div>
     )}
+
+    {/* Individual detections */}
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="border-b border-slate-100 px-5 py-4 sm:px-6">
+        <h4 className="font-bold text-slate-900">
+          Individual Detections
+        </h4>
+        <p className="mt-1 text-sm text-slate-500">
+          Predicted class and confidence for each detected cavity.
+        </p>
+      </div>
+
+      {!scanResult.detections?.length ? (
+        <div className="p-8 text-center">
+          <p className="font-medium text-slate-700">
+            No cavities detected
+          </p>
+          <p className="mt-1 text-sm text-slate-500">
+            Try a clearer image with the blister pack fully visible.
+          </p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[440px] text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-5 py-3 font-semibold">#</th>
+                <th className="px-5 py-3 font-semibold">Prediction</th>
+                <th className="px-5 py-3 font-semibold">Confidence</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {scanResult.detections.map((detection, index) => {
+                const intact = detection.class_name === 'intact'
+                const confidence = Math.max(
+                  0,
+                  Math.min(100, Number(detection.confidence) * 100)
+                )
+
+                return (
+                  <tr
+                    key={`${detection.class_id}-${index}`}
+                    className="border-t border-slate-100 transition hover:bg-slate-50"
+                  >
+                    <td className="px-5 py-4 text-slate-500">
+                      {String(index + 1).padStart(2, '0')}
+                    </td>
+
+                    <td className="px-5 py-4">
+                      <span
+                        className={`inline-flex rounded-full px-3 py-1.5 text-xs font-semibold ${
+                          intact
+                            ? 'bg-emerald-50 text-emerald-700'
+                            : 'bg-orange-50 text-orange-700'
+                        }`}
+                      >
+                        {detection.class_name}
+                      </span>
+                    </td>
+
+                    <td className="px-5 py-4">
+                      <div className="flex min-w-36 items-center gap-3">
+                        <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
+                          <div
+                            className={`h-full rounded-full ${
+                              intact ? 'bg-emerald-500' : 'bg-orange-500'
+                            }`}
+                            style={{ width: `${confidence}%` }}
+                          />
+                        </div>
+                        <span className="w-12 text-right text-xs font-semibold tabular-nums text-slate-700">
+                          {confidence.toFixed(1)}%
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="border-t border-slate-100 bg-slate-50 px-5 py-3 text-xs text-slate-500">
+        Confidence indicates the model's prediction score, not medical certainty.
+      </div>
+    </div>
+
+    {/* Important limitation */}
+    <div className="flex gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+      <span className="text-lg">ⓘ</span>
+      <div>
+        <p className="text-sm font-semibold text-amber-900">
+          Important note
+        </p>
+        <p className="mt-1 text-sm leading-6 text-amber-800">
+          This analysis identifies visible blister-pack conditions only.
+          It cannot confirm whether a medicine was swallowed or determine
+          whether a dose was taken correctly. Verify the result before
+          making medication decisions.
+        </p>
+      </div>
+    </div>
+
+  </section>
+)}
+
+
 
   </div>
 ) : activePage === 'My Medications' ? (

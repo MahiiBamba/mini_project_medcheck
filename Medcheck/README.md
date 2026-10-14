@@ -1,96 +1,87 @@
 # MedCheck — AI-Based Medication Monitoring System
 
-MedCheck is a medication monitoring application designed to help users manage their medication schedules and monitor pill intake. The project combines a web application with backend services and AI-based pill monitoring to support medication adherence and risk analysis.
+MedCheck is a medication monitoring application designed to help users manage medication schedules and monitor visible pill conditions using computer vision. The project combines a React web application, an Express backend, a SQLite database, and a YOLOv8-based AI service to support medication adherence monitoring and risk analysis.
 
 ## Features
 
 - **User Authentication:** Register and log in to the application.
-- **Medication Management:** Manage prescribed medicines and their schedules.
-- **Medication Monitoring:** Support pill intake verification using computer vision.
-- **Adherence Tracking:** Track medication statuses such as `on_time`, `late`, `missed`, and `double`.
-- **Risk Analysis:** Analyze medication-related risks using predefined rules and AI-assisted analysis.
-- **Web Interface:** Access the application's features through a web-based frontend.
+- **Medication Management:** Manage medicines and their schedules.
+- **Medication Monitoring:** Analyze blister-pack images using computer vision.
+- **Adherence Tracking:** Support statuses such as `on_time`, `late`, `missed`, and `double`.
+- **AI-Based Image Analysis:** Detect intact and broken blister cavities using a trained YOLOv8 model.
+- **Detection Visualization:** Display annotated images, detection counts, and confidence scores.
+- **Risk Analysis:** Support medication-related risk analysis through predefined rules and AI-assisted analysis.
+- **Web Interface:** Access available functionality through a React-based frontend.
 
-> Note: The availability of individual features depends on the current implementation and integration of the frontend, backend, and AI model.
+> **Important:** Image analysis identifies visible blister-pack conditions. It cannot confirm that a person swallowed a medicine. Feature availability depends on the current implementation and service configuration.
 
 ## Technology Stack
 
 | Component | Technology |
 |---|---|
-| Frontend | React.js, Vite, JavaScript, CSS |
+| Frontend | React.js, Vite, JavaScript, Tailwind CSS |
 | Backend | Node.js, Express.js |
 | Database | SQLite |
-| AI / Computer Vision | YOLOv8, OpenCV |
-| AI-Assisted Analysis | Ollama with Llama 3.1 |
+| AI Service | Python, FastAPI |
+| Object Detection | YOLOv8, OpenCV |
+| AI-Assisted Analysis | Ollama, Llama 3.1 (where configured) |
 | API Communication | REST API |
 
 ## Prerequisites
 
-Install the following tools before running the project:
+Install the following tools:
 
-1. **Node.js and npm** — Install a supported Node.js LTS version from [nodejs.org](https://nodejs.org/).
-2. **Git** — Required to clone and update the repository. Download it from [git-scm.com](https://git-scm.com/).
-3. **Visual Studio Code** (recommended) — For opening and editing the project.
-4. **Ollama** — Required only if you want to run the local LLM analysis functionality. Download it from [ollama.com](https://ollama.com/).
+1. **Node.js and npm:** Install a supported LTS version from https://nodejs.org/
+2. **Python:** Install a version compatible with the AI dependencies from https://www.python.org/
+3. **Git:** https://git-scm.com/
+4. **Visual Studio Code:** Recommended for development.
+5. **Trained YOLOv8 weights:** Required for AI image analysis. Obtain the authorized `best.pt` file from the project team.
+6. **Ollama:** Required only if the configured LLM functionality is being used. Download it from https://ollama.com/
 
-Verify the Node.js and npm installations by running:
+Verify Node.js and npm:
 
 ```bash
 node -v
 npm -v
 ```
 
-## Step 1: Clone the Repository
+Verify Python:
 
-Open a terminal and run:
+```bash
+python --version
+```
+
+## 1. Clone the Repository
 
 ```bash
 git clone https://github.com/MahiiBamba/mini_project_medcheck.git
-```
-
-Move into the MedCheck application folder:
-
-```bash
 cd mini_project_medcheck/Medcheck
 ```
 
-Open the project in Visual Studio Code:
+If you already have the repository, open the existing `Medcheck` application directory.
 
-```bash
-code .
-```
+## 2. Configure the Backend
 
-If you have already cloned the repository, open the existing `mini_project_medcheck/Medcheck` folder instead.
+Open a terminal in the `Medcheck` directory and navigate to the backend:
 
-## Step 2: Configure the Backend
-
-Open a **new terminal** in VS Code and navigate to the backend folder:
-
-```bash
+```powershell
 cd server
-```
-
-Install the backend dependencies:
-
-```bash
 npm install
 ```
 
-Create a `.env` file inside the `server` folder. You can copy the example file and edit it.
-
-**Windows PowerShell:**
+Create a local `.env` file using the example file, if available:
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-Open `server/.env` and set a strong, private session secret:
+Open `server/.env` and configure the required environment variables. For example:
 
 ```env
 SESSION_SECRET=replace-with-your-own-strong-random-secret
 ```
 
-Use your own randomly generated secret. Do not commit the real `.env` file or share its contents with others.
+Use a private, randomly generated secret. Do not commit `.env` or share its contents.
 
 Start the backend:
 
@@ -98,7 +89,7 @@ Start the backend:
 npm start
 ```
 
-The backend should start at:
+The backend is expected to run at:
 
 ```text
 http://localhost:5000
@@ -106,146 +97,232 @@ http://localhost:5000
 
 Keep this terminal running.
 
-## Step 3: Configure the Frontend
+## 3. Configure the Frontend
 
-Open a **second terminal** in VS Code. Make sure you are in the main `Medcheck` folder, not the `server` folder.
+Open a second terminal in the main `Medcheck` directory, not inside `server`.
 
-If your terminal is currently inside `server`, return to the parent folder:
+If necessary, return to the application directory:
 
-```bash
+```powershell
 cd ..
 ```
 
-Install the frontend dependencies:
+Install frontend dependencies:
 
 ```bash
 npm install
 ```
 
-Start the frontend development server:
+Start the frontend:
 
 ```bash
 npm run dev
 ```
 
-Vite will display a local URL in the terminal, usually:
+Vite will display the local development URL, usually:
 
 ```text
 http://localhost:5173
 ```
 
-Open the displayed URL in your browser to use the application.
+Open that URL in your browser.
 
-**Important:** Keep both the backend and frontend terminals running while using MedCheck.
+Keep the frontend and backend terminals running while testing the application.
 
-## Step 4: Run the AI Components (If Required)
+## 4. Configure the AI Service
 
-The web application and API can be started separately from the AI components.
+The AI service runs separately from the React frontend and Express backend.
 
-If the current pill-monitoring or risk-analysis workflow requires the local LLM:
+### Step 4.1: Navigate to the AI service
 
-1. Install and open Ollama.
-2. Download the required model:
+Open a third terminal in the main `Medcheck` directory:
 
-   ```bash
-   ollama pull llama3.1:8b
-   ```
+```powershell
+cd ai_service
+```
 
-3. Make sure Ollama is running.
-4. Start the relevant AI or monitoring component according to its setup instructions.
+### Step 4.2: Create a Python virtual environment
 
-The YOLOv8 pill-detection component may require additional Python dependencies and trained model weights. Follow the instructions in the relevant AI/model directory before running it.
+```powershell
+python -m venv .venv
+```
 
-**Note:** Starting the frontend and backend does not automatically guarantee that every AI component is running. The model, its dependencies, and the corresponding integration must also be configured.
+Activate it in Windows PowerShell:
 
-## Step 5: Verify the Application
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
 
-After starting the required services:
+If PowerShell blocks activation, use an appropriate Python environment activation method permitted on your system.
 
-1. Open the frontend URL in your browser.
-2. Register a test account or log in, if authentication is enabled.
-3. Navigate through the available application pages.
-4. Test the medication-related functionality supported by the current build.
-5. Check the backend terminal for API errors if something does not work.
+### Step 4.3: Install dependencies
 
-If a feature fails, verify that the backend is running and that the frontend is communicating with the correct API address.
+```bash
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+### Step 4.4: Configure the trained model
+
+Place the authorized trained model file at:
+
+```text
+Medcheck/ai_service/models/best.pt
+```
+
+Create the `models` directory if it does not exist.
+
+**Note:** Model weights are not included in the Git repository by default. Obtain the file separately from the project team.
+
+### Step 4.5: Start the AI service
+
+From inside `ai_service`, run:
+
+```bash
+python -m uvicorn app.main:app --reload --port 8000
+```
+
+The AI service should be available at:
+
+```text
+http://127.0.0.1:8000
+```
+
+If the FastAPI application exposes interactive API documentation, you can check:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+Keep the AI service terminal running while testing image analysis.
+
+## 5. Test AI Image Analysis
+
+After configuring all three services:
+
+1. Start the Express backend on port `5000`.
+2. Start the FastAPI AI service on port `8000`.
+3. Start the React frontend on port `5173`.
+4. Open the frontend in your browser.
+5. Log in or register if authentication is enabled.
+6. Navigate to the medicine scanning page.
+7. Upload a clear blister-pack image.
+8. Run the analysis and review the detection counts, annotated image, and individual confidence scores.
+
+The frontend sends the uploaded image to the Express backend, which forwards it to the AI service. The AI service runs YOLOv8 inference and returns the detection results.
+
+If analysis fails, verify that all services are running and that the model file and Python dependencies are available.
+
+## 6. Optional: Configure Ollama
+
+Ollama is needed only if the current application configuration uses local LLM-assisted analysis.
+
+Install Ollama, then download the required model:
+
+```bash
+ollama pull llama3.1:8b
+```
+
+Make sure Ollama is running and that the application is configured to connect to it. YOLOv8 image detection does not require Ollama unless the application explicitly connects the two.
 
 ## Project Structure
 
 ```text
-Medcheck/
-├── public/                  # Public frontend assets
-├── src/                     # React frontend source code
-│   ├── assets/              # Images and other assets
-│   ├── App.jsx              # Main application component
-│   ├── AuthPage.jsx         # Authentication interface
-│   ├── App.css              # Application styling
-│   └── index.css            # Global styling
-├── server/                  # Backend application
-│   ├── index.js             # Backend entry point
-│   ├── package.json         # Backend dependencies and scripts
-│   └── .env.example         # Example environment configuration
-├── index.html
-├── package.json             # Frontend dependencies and scripts
-├── vite.config.js
+mini_project_medcheck/
 ├── .gitignore
-└── README.md
+├── README.md
+├── blister_dataset/
+├── blister_dataset_v2/
+├── dataset/
+├── model_weights/
+├── yolo_om/
+├── yolo_training/
+├── realtime_monitor.py
+└── Medcheck/
+    ├── public/
+    ├── src/
+    │   ├── assets/
+    │   ├── App.jsx
+    │   ├── AuthPage.jsx
+    │   ├── App.css
+    │   └── index.css
+    ├── server/
+    │   ├── index.js
+    │   ├── package.json
+    │   └── .env.example
+    ├── ai_service/
+    │   ├── app/
+    │   │   ├── main.py
+    │   │   └── inference.py
+    │   ├── models/
+    │   │   └── best.pt
+    │   ├── test_images/
+    │   └── requirements.txt
+    ├── index.html
+    ├── package.json
+    ├── package-lock.json
+    ├── vite.config.js
+    └── .gitignore
 ```
 
-The AI training code, datasets, and model weights may be maintained in separate directories in the main repository.
+The model weights, generated images, local databases, virtual environments, and dependency folders may be excluded from version control.
 
 ## Common Issues and Solutions
 
 ### 1. `npm` is not recognized
 
-Install Node.js, reopen the terminal, and verify the installation using `node -v` and `npm -v`.
+Install Node.js, reopen the terminal, and verify using `node -v` and `npm -v`.
 
 ### 2. Backend fails to start
 
-- Check that you are inside the `server` folder.
+- Navigate to the `server` directory.
 - Run `npm install`.
-- Verify that `server/.env` exists and contains a valid `SESSION_SECRET`.
-- Check whether port `5000` is already in use.
+- Check that the required environment variables are configured.
+- Verify that port `5000` is available.
 
 ### 3. Frontend cannot connect to the backend
 
-- Make sure the backend is running.
-- Check the API URL used by the frontend.
-- Look at the browser console and backend terminal for error messages.
+- Ensure the Express backend is running.
+- Verify the API URL used by the frontend.
+- Check the browser console and backend terminal for errors.
 
-### 4. AI analysis is unavailable
+### 4. AI service fails to start
 
-- Check whether Ollama is installed and running.
-- Verify that the required model has been downloaded.
-- Confirm that the AI component is configured to communicate with the local service.
+- Ensure the Python virtual environment is activated.
+- Run `pip install -r requirements.txt`.
+- Confirm that the terminal is inside `ai_service`.
+- Check that the trained model exists at `models/best.pt`.
+- Verify that port `8000` is available.
 
-### 5. Dependencies are missing
+### 5. Annotated image does not appear
 
-Run `npm install` in the appropriate directory. The frontend and backend have separate `package.json` files, so dependencies must be installed in both folders.
+- Confirm that FastAPI is running.
+- Verify that the annotation URL returned by the API is correct.
+- Check that generated images are saved in the expected directory and served by FastAPI.
+
+### 6. Dependencies are missing
+
+The frontend, backend, and AI service have separate dependency configurations. Install the dependencies in the appropriate directory.
 
 ## Important Notes for Team Members
 
-- Do not commit `node_modules/`, `.env`, database files, or other local runtime data.
-- Keep personal credentials and session secrets private.
-- Do not delete or replace trained model weights or datasets without coordinating with the team.
-- Pull the latest changes before beginning work:
-
-  ```bash
-  git pull origin main
-  ```
-
-- Commit and push your changes using your assigned Git workflow.
-- If you change dependencies, update and commit the corresponding `package-lock.json`.
+- Never commit `.env` files, passwords, session secrets, or API keys.
+- Do not commit `node_modules`, Python virtual environments, local databases, or generated inference outputs.
+- Obtain trained model weights through the team's agreed method.
+- Coordinate changes to datasets and trained weights with the team.
+- Pull the latest team changes before beginning new work.
+- Update the relevant dependency files when adding or changing dependencies.
+- Do not force-push to the shared `main` branch.
 
 ## Stopping the Application
 
-To stop a running service, switch to its terminal and press:
+In each running terminal, press:
 
 ```text
 Ctrl + C
 ```
 
-Stop the frontend, backend, and any separately running AI processes when you have finished.
+Stop the frontend, backend, and AI service separately.
 
 ## Repository
 

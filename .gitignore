@@ -1,0 +1,32 @@
+# Secrets
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+
+# Local databases and sessions
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Python caches and virtual environments
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# YOLO model weights and generated outputs
+**/models/
+**/annotated_images/
+**/runs/
+
+# Dependencies and build outputs
+node_modules/
+dist/
+dist-ssr/
+
+# Temporary backups
+*.backup

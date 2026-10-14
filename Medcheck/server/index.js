@@ -7,6 +7,7 @@ const session = require('express-session')
 const SQLiteStore = require('connect-sqlite3')(session)
 const rateLimit = require('express-rate-limit')
 const path = require('path')
+const multer = require('multer')
 require('dotenv').config({ path: path.join(__dirname, '.env') })
 
 const app = express()
@@ -25,6 +26,26 @@ app.use(cors({
 }))
 
 app.use(express.json({ limit: '10kb' }))
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024,
+    files: 1,
+  },
+  fileFilter: (req, file, callback) => {
+    const allowedTypes = new Set([
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+    ])
+
+    if (!allowedTypes.has(file.mimetype)) {
+      return callback(new Error('Upload a JPG, PNG, or WEBP image.'))
+    }
+
+    callback(null, true)
+  },
+})
 
 app.use(session({
   name: 'medcheck.sid',
@@ -161,6 +182,56 @@ function safeUser(user) {
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'MedCheck API is running' })
 })
+
+const AI_SERVICE_URL = 'http://127.0.0.1:8000'
+
+app.post(
+  '/api/analyze-blister',
+  requireAuth,
+  upload.single('file'),
+  async (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({
+        error: 'Please upload a blister-pack image.',
+      })
+    }
+
+    try {
+      const formData = new FormData()
+
+      const imageBlob = new Blob([req.file.buffer], {
+        type: req.file.mimetype,
+      })
+
+      formData.append('file', imageBlob, req.file.originalname)
+
+      const aiResponse = await fetch(
+        `${AI_SERVICE_URL}/api/analyze`,
+        {
+          method: 'POST',
+          body: formData,
+          signal: AbortSignal.timeout(30000),
+        }
+      )
+
+      const result = await aiResponse.json()
+
+      if (!aiResponse.ok) {
+        return res.status(aiResponse.status).json({
+          error: result.detail || 'AI image analysis failed.',
+        })
+      }
+
+      return res.json(result)
+    } catch (error) {
+      console.error('Blister analysis failed:', error.message)
+
+      return res.status(502).json({
+        error: 'The AI service is unavailable or failed to respond.',
+      })
+    }
+  }
+)
 
 // Register a patient account.
 app.post('/api/auth/register', authLimiter, async (req, res) => {
