@@ -63,6 +63,12 @@ function App() {
   const [scanResult, setScanResult] = useState(null)
 
   const [notificationHistory, setNotificationHistory] = useState([])
+  const [aiInsights, setAiInsights] = useState([])
+  const [healthInsights, setHealthInsights] = useState([])
+  const [healthInsightLoading, setHealthInsightLoading] = useState(false)
+  const [healthInsightError, setHealthInsightError] = useState('')
+  const [insightsLoading, setInsightsLoading] = useState(false)
+  const [insightsError, setInsightsError] = useState('')
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState('')  
   const [medications, setMedications] = useState([])
@@ -228,6 +234,15 @@ async function analyzeScanImage() {
     }
 
     setScanResult(result.data)
+    loadAIInsights()
+    loadNotificationHistory()
+    const insight = result.data?.llm_insight
+    if (insight?.notification_required && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      new Notification('MedCheck AI alert', {
+        body: insight.notification || 'Your scan needs attention. Please review the AI guidance.',
+        tag: `medcheck-ai-${result.data?.scan_id || Date.now()}`,
+      })
+    }
   } catch (error) {
     setScanError(
       error.message || 'Could not connect to the AI service.'
@@ -261,6 +276,70 @@ async function markAsTaken(id) {
     setApiError('')
   } catch (error) {
     setApiError(error.message || 'Could not update medication.')
+  }
+}
+
+async function loadAIInsights() {
+  setInsightsLoading(true)
+  setInsightsError('')
+  try {
+    const response = await fetch('http://localhost:5000/api/ai-insights', {
+      credentials: 'include',
+    })
+    if (!response.ok) {
+      throw new Error(response.status === 401
+        ? 'Please log in to view your AI insights.'
+        : 'Could not load AI insights.')
+    }
+    setAiInsights(await response.json())
+  } catch (error) {
+    setInsightsError(error.message || 'Could not load AI insights.')
+  } finally {
+    setInsightsLoading(false)
+  }
+}
+
+
+async function loadHealthInsights() {
+  setHealthInsightError('')
+  try {
+    const response = await fetch('http://localhost:5000/api/health-insights', {
+      credentials: 'include',
+    })
+    if (!response.ok) throw new Error(response.status === 401
+      ? 'Please log in to view your health insights.'
+      : 'Could not load personalized health insights.')
+    setHealthInsights(await response.json())
+  } catch (error) {
+    setHealthInsightError(error.message || 'Could not load personalized health insights.')
+  }
+}
+
+async function generateHealthInsights() {
+  setHealthInsightLoading(true)
+  setHealthInsightError('')
+  try {
+    const response = await fetch('http://localhost:5000/api/health-insights/generate', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+    const result = await response.json()
+    if (!response.ok) throw new Error(result.error || 'Could not generate health insights.')
+    setHealthInsights((current) => [result, ...current.filter((item) => item.id !== result.id)])
+    await loadNotificationHistory()
+    if (result.llmAvailable && result.notificationCreated && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      const notificationText = result.summary || result.title
+      new Notification('MedCheck personalized health insight', {
+        body: notificationText.slice(0, 180),
+        tag: `medcheck-health-insight-${result.id}`,
+      })
+    }
+  } catch (error) {
+    setHealthInsightError(error.message || 'Could not generate personalized health insights.')
+  } finally {
+    setHealthInsightLoading(false)
   }
 }
 
@@ -502,8 +581,12 @@ if (!user) {
               onClick={() => {
                 setActivePage(item.name)
 
-                if (item.name === 'Notification History') {
+                if (item.name === 'Notification History' || item.name === 'Notifications') {
                   loadNotificationHistory()
+                }
+                if (item.name === 'AI Insights') {
+                  loadAIInsights()
+                  loadHealthInsights()
                 }
               }}
 
@@ -566,14 +649,79 @@ if (!user) {
     {apiError}
   </div>
 )}
-{activePage === 'Notification History' ? (
+{activePage === 'AI Insights' ? (
+  <div className="space-y-6">
+    <header className="flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <p className="text-sm font-semibold text-indigo-700">History-aware guidance</p>
+        <h1 className="mt-1 text-3xl font-bold text-slate-900">AI Insights</h1>
+        <p className="mt-2 text-sm text-slate-600">Personalized medication-adherence guidance based on your saved medication, dose, and scan history.</p>
+      </div>
+      <div className="flex flex-wrap gap-2"><button onClick={loadHealthInsights} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium hover:bg-slate-50">Refresh health insights</button><button onClick={generateHealthInsights} disabled={healthInsightLoading} className="rounded-xl bg-indigo-700 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-800 disabled:opacity-60">{healthInsightLoading ? "Generating…" : "Generate personalized recommendations"}</button></div>
+    </header>
+    <section className="rounded-2xl border border-indigo-100 bg-white p-5 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">Your health and medication recommendations</h2>
+          <p className="mt-1 text-sm text-slate-600">Llama 3 reviews your saved medication list, dose-tracking records, and recent scan summaries from the last 7 days.</p>
+        </div>
+        {healthInsights[0]?.llmAvailable ? <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Llama 3 generated</span> : null}
+      </div>
+      {healthInsightError ? <p role="alert" className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">{healthInsightError}</p> : null}
+      {healthInsightLoading ? <p className="mt-4 text-sm text-slate-600">Reviewing your saved history…</p> : null}
+      {!healthInsightLoading && healthInsights.length === 0 ? <p className="mt-4 text-sm text-slate-500">No personalized health report saved yet. Select “Generate personalized recommendations” to create one from your account history.</p> : null}
+      {healthInsights[0] ? <article className="mt-4 rounded-xl bg-indigo-50/70 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-semibold text-indigo-950">{healthInsights[0].title}</h3>
+          <span className="text-xs text-slate-500">{healthInsights[0].createdAt ? new Date(healthInsights[0].createdAt.replace(' ', 'T') + (healthInsights[0].createdAt.endsWith('Z') ? '' : 'Z')).toLocaleString() : ''}</span>
+        </div>
+        <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-700">{healthInsights[0].summary}</p>
+        {healthInsights[0].historySummary ? <p className="mt-2 text-xs text-slate-600">History considered: {healthInsights[0].historySummary}</p> : null}
+        {Array.isArray(healthInsights[0].recommendations) && healthInsights[0].recommendations.length > 0 ? <ul className="mt-3 list-disc space-y-1 pl-5 text-sm leading-6 text-slate-700">{healthInsights[0].recommendations.map((item, index) => <li key={`health-${healthInsights[0].id}-${index}`}>{item}</li>)}</ul> : null}
+        {!healthInsights[0].llmAvailable ? <p className="mt-3 text-xs font-medium text-amber-800">This report was not generated by Llama 3 because the model service was unavailable. Start Ollama and try again for an LLM-generated report.</p> : null}
+        <p className="mt-3 text-xs text-slate-500">Model: {healthInsights[0].llmModel || 'not available'} · {healthInsights[0].disclaimer || 'Informational guidance only; not a diagnosis.'}</p>
+      </article> : null}
+      {healthInsights.length > 1 ? <details className="mt-3"><summary className="cursor-pointer text-sm font-medium text-indigo-800">View previous health reports ({healthInsights.length - 1})</summary><div className="mt-3 space-y-3">{healthInsights.slice(1).map((item) => <article key={item.id} className="rounded-xl border border-slate-100 p-3"><h3 className="font-semibold text-slate-800">{item.title}</h3><p className="mt-1 text-sm text-slate-600">{item.summary}</p><p className="mt-1 text-xs text-slate-500">{item.createdAt || ''}</p></article>)}</div></details> : null}
+    </section>
+    {insightsLoading ? <p className="text-sm text-slate-600">Loading your scan insights…</p> : null}
+    {insightsError ? <p role="alert" className="rounded-xl bg-red-50 p-4 text-sm text-red-700">{insightsError}</p> : null}
+    {!insightsLoading && !insightsError && aiInsights.length === 0 ? (
+      <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center">
+        <h3 className="font-semibold text-slate-800">No AI insights yet</h3>
+        <p className="mt-2 text-sm text-slate-500">Analyze a blister-pack image to save an explanation and recommendations here.</p>
+      </div>
+    ) : null}
+    <div className="space-y-4">
+      {aiInsights.map((item) => (
+        <article key={item.id} className="rounded-2xl border border-indigo-100 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="font-semibold text-slate-900">{item.imageName || 'Blister-pack scan'}</h2>
+              <p className="mt-1 text-xs text-slate-500">{item.createdAt ? new Date(item.createdAt.replace(' ', 'T') + (item.createdAt.endsWith('Z') ? '' : 'Z')).toLocaleString() : 'Date unavailable'}</p>
+            </div>
+            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${item.visualRiskLevel === 'high' ? 'bg-red-100 text-red-700' : item.visualRiskLevel === 'moderate' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-700'}`}>{item.visualRiskLevel || 'unrated'} visual concern</span>
+          </div>
+          <p className="mt-4 whitespace-pre-line text-sm leading-6 text-slate-700">{item.explanation || 'No saved explanation for this scan.'}</p>
+          <p className="mt-3 text-xs text-slate-500">Recent scan: {item.brokenCount || 0} broken · {item.intactCount || 0} intact · visual score {item.visualRiskScore ?? 0}%</p>
+          {Array.isArray(item.recommendations) && item.recommendations.length > 0 ? (
+            <div className="mt-4 rounded-xl bg-indigo-50/70 p-4">
+              <h3 className="text-sm font-semibold text-indigo-900">Suggested next steps</h3>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-slate-700">{item.recommendations.map((recommendation, index) => <li key={`${item.id}-${index}`}>{recommendation}</li>)}</ul>
+            </div>
+          ) : null}
+        </article>
+      ))}
+    </div>
+    <p className="text-xs leading-5 text-slate-500">AI guidance is informational, not a diagnosis. Confirm damaged or uncertain medication with a pharmacist.</p>
+  </div>
+) : activePage === 'Notification History' ? (
   <div className="space-y-6">
     <header>
       <h1 className="text-2xl font-bold text-slate-900">
         Notification History
       </h1>
       <p className="mt-2 text-sm text-slate-600">
-        Review previously recorded medication reminders.
+        Review saved medication reminders and persistent AI health alerts.
       </p>
     </header>
 
@@ -619,7 +767,7 @@ if (!user) {
                 className="border-t border-slate-100"
               >
                 <td className="px-4 py-3 font-medium text-slate-800">
-                  {item.medicationName}
+                  {item.medicationName}{item.message ? <p className="mt-1 max-w-sm whitespace-normal text-xs font-normal text-slate-600">{item.message}</p> : null}
                 </td>
                 <td className="px-4 py-3 text-slate-600">
                   {item.scheduledDate}
@@ -686,6 +834,32 @@ if (!user) {
       )}
     </div>
 
+
+    <section className="mb-6 rounded-2xl border border-indigo-100 bg-white p-6">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="font-semibold text-slate-900">AI scan alerts</h3>
+          <p className="mt-1 text-sm text-slate-500">Saved LLM/visual-integrity alerts from your scans.</p>
+        </div>
+        <button onClick={loadNotificationHistory} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium hover:bg-slate-50">Refresh alerts</button>
+      </div>
+      {historyError ? <p className="text-sm text-red-700">{historyError}</p> : null}
+      {notificationHistory.filter((item) => String(item.eventType || '').toLowerCase().includes('ai alert')).length === 0 ? (
+        <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No AI scan alerts recorded yet. Alerts appear here when a scan requires attention.</p>
+      ) : (
+        <div className="space-y-3">
+          {notificationHistory.filter((item) => String(item.eventType || '').toLowerCase().includes('ai alert')).map((item) => (
+            <div key={item.id} className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <p className="font-semibold text-amber-950">{item.eventType}</p>
+                <span className="text-xs text-amber-800">{item.scheduledDate} · {item.scheduledTime}</span>
+              </div>
+              <p className="mt-1 text-sm text-amber-900">{item.medicationName}: review the related scan in AI Insights and verify damaged or uncertain medicine with a pharmacist.</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
 
     <section className="rounded-2xl border border-slate-200 bg-white p-6">
       {medications.filter(
@@ -942,6 +1116,60 @@ if (!user) {
         Analysis complete
       </span>
     </div>
+
+    {/* History-aware Llama guidance */}
+    {scanResult.llm_insight && (
+      <div className="rounded-2xl border border-indigo-200 bg-indigo-50/70 p-5 sm:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-indigo-700">
+              Llama 3 · Personalized scan guidance
+            </p>
+            <h4 className="mt-1 text-lg font-bold text-slate-900">
+              What this result means
+            </h4>
+          </div>
+          <span className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
+            scanResult.visual_risk_level === 'high'
+              ? 'bg-red-100 text-red-700'
+              : scanResult.visual_risk_level === 'moderate'
+                ? 'bg-amber-100 text-amber-800'
+                : 'bg-emerald-100 text-emerald-700'
+          }`}>
+            {scanResult.visual_risk_level || 'unrated'} visual concern
+          </span>
+        </div>
+        <p className="mt-3 leading-7 text-slate-700">
+          {scanResult.llm_insight.explanation}
+        </p>
+        {scanResult.llm_insight.history_summary && (
+          <p className="mt-3 rounded-xl bg-white/80 p-3 text-sm leading-6 text-slate-600">
+            <strong>Recent history:</strong> {scanResult.llm_insight.history_summary}
+            {typeof scanResult.llm_insight.history_scans_considered === 'number' &&
+              ` (${scanResult.llm_insight.history_scans_considered} scans considered from the last 7 days.)`}
+          </p>
+        )}
+        {Array.isArray(scanResult.llm_insight.recommendations) && scanResult.llm_insight.recommendations.length > 0 && (
+          <div className="mt-4">
+            <h5 className="font-semibold text-slate-900">Suggested next steps</h5>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-slate-700">
+              {scanResult.llm_insight.recommendations.map((item, index) => (
+                <li key={`${index}-${item}`}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {scanResult.llm_insight.notification_required && (
+          <p className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-800">
+            Notification recorded: {scanResult.llm_insight.notification || 'High visual damage concern detected. Please verify the medicine with a pharmacist.'}
+          </p>
+        )}
+        <p className="mt-4 text-xs leading-5 text-slate-500">
+          {scanResult.llm_insight.disclaimer || 'AI-generated guidance is not a medical diagnosis. Verify damaged or uncertain medicine with a pharmacist.'}
+          {!scanResult.llm_insight.llm_available && ' Llama 3 was unavailable, so safe fallback guidance is shown.'}
+        </p>
+      </div>
+    )}
 
     {/* Summary cards */}
     <div className="grid gap-4 sm:grid-cols-3">

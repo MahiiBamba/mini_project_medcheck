@@ -1,0 +1,31 @@
+============================================================
+MEDCHECK YOLO DATASET ANNOTATION REPORT
+============================================================
+
+Total images: 459
+Total annotations: 5256
+
+CLASS DISTRIBUTION
+------------------------------
+Class 0 (intact): 2669
+Class 1 (broken): 2587
+
+MISSING LABEL FILES
+------------------------------
+None
+
+EMPTY LABEL FILES
+------------------------------
+None
+
+EXTRA LABEL FILES
+------------------------------
+None
+
+INVALID ANNOTATIONS
+------------------------------
+None
+
+IMAGES WITHOUT VALID BOXES
+------------------------------
+None

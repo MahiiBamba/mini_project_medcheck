@@ -147,6 +147,56 @@ db.exec(`
   )
 `)
 
+
+const notificationColumns = db.prepare('PRAGMA table_info(notification_history)').all()
+if (!notificationColumns.some((column) => column.name === 'message')) {
+  db.exec('ALTER TABLE notification_history ADD COLUMN message TEXT')
+}
+
+
+// Scan history powers the seven-day context used by the LLM. Existing data is preserved.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS scan_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    image_name TEXT NOT NULL,
+    total_detections INTEGER NOT NULL DEFAULT 0,
+    intact_count INTEGER NOT NULL DEFAULT 0,
+    broken_count INTEGER NOT NULL DEFAULT 0,
+    visual_risk_score INTEGER,
+    visual_risk_level TEXT NOT NULL DEFAULT 'low',
+    detections_json TEXT NOT NULL DEFAULT '[]',
+    explanation TEXT,
+    recommendations_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_scan_history_user_created
+    ON scan_history(user_id, created_at);
+
+  CREATE TABLE IF NOT EXISTS health_insights (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    recommendations_json TEXT NOT NULL DEFAULT '[]',
+    severity TEXT NOT NULL DEFAULT 'low',
+    history_summary TEXT NOT NULL DEFAULT '',
+    llm_model TEXT NOT NULL DEFAULT '',
+    llm_available INTEGER NOT NULL DEFAULT 0,
+    disclaimer TEXT NOT NULL DEFAULT 'Informational guidance only; not a diagnosis.',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_health_insights_user_created
+    ON health_insights(user_id, created_at);
+`)
+
+const healthInsightColumns = db.prepare('PRAGMA table_info(health_insights)').all()
+if (!healthInsightColumns.some((column) => column.name === 'disclaimer')) {
+  db.exec("ALTER TABLE health_insights ADD COLUMN disclaimer TEXT NOT NULL DEFAULT 'Informational guidance only; not a diagnosis.'")
+}
+
 const findUserByEmail = db.prepare(
   'SELECT * FROM users WHERE email = ?'
 )
@@ -222,7 +272,101 @@ app.post(
         })
       }
 
-      return res.json(result)
+      const scan = result.data || result
+      const counts = scan.counts || {}
+      const total = Math.max(0, Number(scan.total_detections) || 0)
+      const broken = Math.max(0, Number(counts.broken) || 0)
+      const intact = Math.max(0, Number(counts.intact) || 0)
+      const visualRiskScore = total > 0 ? Math.round((broken / total) * 100) : 0
+      // This is a visual packaging-integrity indicator, not a clinical risk score.
+      const visualRiskLevel = broken >= 2 || (total > 0 && broken / total >= 0.25)
+        ? 'high'
+        : broken > 0 ? 'moderate' : 'low'
+      const savedScan = db.prepare(`
+        INSERT INTO scan_history (
+          user_id, image_name, total_detections, intact_count, broken_count,
+          visual_risk_score, visual_risk_level, detections_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        req.session.userId,
+        String(scan.image_name || req.file.originalname).slice(0, 255),
+        total, intact, broken, visualRiskScore, visualRiskLevel,
+        JSON.stringify(Array.isArray(scan.detections) ? scan.detections : [])
+      )
+      const currentScan = {
+        scan_id: Number(savedScan.lastInsertRowid),
+        image_name: String(scan.image_name || req.file.originalname).slice(0, 255),
+        total_detections: total,
+        counts: { intact, broken },
+        visual_risk_score: visualRiskScore,
+        visual_risk_level: visualRiskLevel,
+        detections: Array.isArray(scan.detections) ? scan.detections : [],
+        created_at: new Date().toISOString(),
+      }
+
+      let llmInsight = {
+        explanation: 'The image analysis is complete. Llama 3 guidance is currently unavailable.',
+        recommendations: ['If any medicine or packaging looks damaged, verify it with a pharmacist before use.'],
+        severity: visualRiskLevel,
+        notification_required: visualRiskLevel === 'high',
+        notification: '',
+        history_summary: 'History-based explanation was unavailable for this scan.',
+        disclaimer: 'Visual analysis is not a medical diagnosis. Verify uncertain or damaged medication with a pharmacist.',
+        llm_available: false,
+      }
+      try {
+        const explainResponse = await fetch(`${AI_SERVICE_URL}/api/explain`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: req.session.userId, current_scan: currentScan }),
+          signal: AbortSignal.timeout(50000),
+        })
+        if (explainResponse.ok) {
+          const explainResult = await explainResponse.json()
+          if (explainResult?.data) llmInsight = { ...llmInsight, ...explainResult.data }
+        } else {
+          console.warn('LLM explanation endpoint returned', explainResponse.status)
+        }
+      } catch (llmError) {
+        // Do not fail a successful YOLO scan because optional Ollama is unavailable.
+        console.warn('LLM explanation unavailable:', llmError.message)
+      }
+
+      db.prepare(`
+        UPDATE scan_history SET explanation = ?, recommendations_json = ? WHERE id = ? AND user_id = ?
+      `).run(
+        String(llmInsight.explanation || '').slice(0, 4000),
+        JSON.stringify(Array.isArray(llmInsight.recommendations) ? llmInsight.recommendations : []),
+        Number(savedScan.lastInsertRowid), req.session.userId
+      )
+
+      if (llmInsight.notification_required === true || visualRiskLevel === 'high') {
+        const now = new Date()
+        const scheduledDate = now.toISOString().slice(0, 10)
+        const scheduledTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+        db.prepare(`
+          INSERT INTO notification_history (
+            user_id, medication_id, medication_name, scheduled_time, scheduled_date, event_type
+          ) VALUES (?, NULL, ?, ?, ?, ?)
+        `).run(
+          req.session.userId,
+          'Blister-pack scan',
+          scheduledTime,
+          scheduledDate,
+          `AI alert: ${String(llmInsight.severity || visualRiskLevel).slice(0, 20)} visual concern`
+        )
+      }
+
+      return res.json({
+        success: true,
+        message: 'Image analyzed successfully',
+        data: {
+          ...scan,
+          visual_risk_score: visualRiskScore,
+          visual_risk_level: visualRiskLevel,
+          llm_insight: llmInsight,
+        },
+      })
     } catch (error) {
       console.error('Blister analysis failed:', error.message)
 
@@ -629,6 +773,131 @@ app.post('/api/notification-history', requireAuth, (req, res) => {
   })
 })
 
+
+// Generate and persist history-based health insights for the authenticated user.
+app.post('/api/health-insights/generate', requireAuth, async (req, res) => {
+  try {
+    const response = await fetch(`${AI_SERVICE_URL}/api/health-recommendations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: req.session.userId }),
+      signal: AbortSignal.timeout(65000),
+    })
+    const result = await response.json()
+    if (!response.ok || !result?.data) {
+      return res.status(502).json({ error: result?.detail || 'Could not generate health insights.' })
+    }
+
+    const insight = result.data
+    const recommendations = Array.isArray(insight.recommendations)
+      ? insight.recommendations.slice(0, 5).map((item) => String(item).slice(0, 500))
+      : []
+    const inserted = db.prepare(`
+      INSERT INTO health_insights (
+        user_id, title, summary, recommendations_json, severity,
+        history_summary, llm_model, llm_available, disclaimer
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      req.session.userId,
+      String(insight.title || 'Your medication health insights').slice(0, 120),
+      String(insight.summary || '').slice(0, 2000),
+      JSON.stringify(recommendations),
+      ['low', 'moderate', 'high'].includes(insight.severity) ? insight.severity : 'low',
+      String(insight.history_summary || '').slice(0, 1000),
+      String(insight.llm_model || '').slice(0, 100),
+      insight.llm_available === true ? 1 : 0,
+      String(insight.disclaimer || 'Informational guidance only; not a diagnosis.').slice(0, 500)
+    )
+
+    // Persist only actionable LLM notifications; suppress duplicate alerts on the same day.
+    let notificationCreated = false
+    if (insight.llm_available === true && insight.notification_required === true && String(insight.notification || '').trim()) {
+      const { date, time } = getIndiaDateTime()
+      const duplicate = db.prepare(`
+        SELECT id FROM notification_history
+        WHERE user_id = ? AND scheduled_date = ?
+          AND event_type = 'AI health insight'
+          AND message = ?
+        LIMIT 1
+      `).get(req.session.userId, date, String(insight.notification).slice(0, 500))
+      if (!duplicate) {
+        db.prepare(`
+          INSERT INTO notification_history (
+            user_id, medication_id, medication_name, scheduled_time,
+            scheduled_date, event_type, message
+          ) VALUES (?, NULL, 'Health insight', ?, ?, 'AI health insight', ?)
+        `).run(req.session.userId, time, date, String(insight.notification).slice(0, 500))
+        notificationCreated = true
+      }
+    }
+
+    const saved = db.prepare(`
+      SELECT id, title, summary, recommendations_json AS recommendationsJson,
+        severity, history_summary AS historySummary, llm_model AS llmModel,
+        llm_available AS llmAvailable, disclaimer, created_at AS createdAt
+      FROM health_insights WHERE id = ? AND user_id = ?
+    `).get(Number(inserted.lastInsertRowid), req.session.userId)
+    res.status(201).json({
+      ...saved,
+      recommendations: JSON.parse(saved.recommendationsJson || '[]'),
+      recommendationsJson: undefined,
+      llmAvailable: Boolean(saved.llmAvailable),
+      notificationCreated,
+      message: insight.llm_available ? 'Llama health insights generated and saved.' : 'Llama was unavailable; fallback status saved without an AI notification.',
+    })
+  } catch (error) {
+    console.error('Health insight generation failed:', error.message)
+    res.status(502).json({ error: 'Could not connect to the MedCheck AI service. Check that it is running.' })
+  }
+})
+
+app.get('/api/health-insights', requireAuth, (req, res) => {
+  const rows = db.prepare(`
+    SELECT id, title, summary, recommendations_json AS recommendationsJson,
+      severity, history_summary AS historySummary, llm_model AS llmModel,
+      llm_available AS llmAvailable, disclaimer, created_at AS createdAt
+    FROM health_insights
+    WHERE user_id = ?
+    ORDER BY datetime(created_at) DESC, id DESC
+    LIMIT 20
+  `).all(req.session.userId)
+  res.json(rows.map((row) => ({
+    ...row,
+    recommendations: (() => {
+      try { return JSON.parse(row.recommendationsJson || '[]') } catch { return [] }
+    })(),
+    recommendationsJson: undefined,
+    llmAvailable: Boolean(row.llmAvailable),
+  })))
+})
+
+
+app.get('/api/ai-insights', requireAuth, (req, res) => {
+  const rows = db.prepare(`
+    SELECT id, image_name AS imageName,
+      total_detections AS totalDetections,
+      intact_count AS intactCount,
+      broken_count AS brokenCount,
+      visual_risk_score AS visualRiskScore,
+      visual_risk_level AS visualRiskLevel,
+      explanation,
+      recommendations_json AS recommendationsJson,
+      created_at AS createdAt
+    FROM scan_history
+    WHERE user_id = ?
+    ORDER BY datetime(created_at) DESC, id DESC
+    LIMIT 50
+  `).all(req.session.userId)
+
+  res.json(rows.map((row) => ({
+    ...row,
+    recommendations: (() => {
+      try { return JSON.parse(row.recommendationsJson || '[]') } catch { return [] }
+    })(),
+    recommendationsJson: undefined,
+  })))
+})
+
 app.get('/api/notification-history', requireAuth, (req, res) => {
   const history = db.prepare(`
     SELECT
@@ -638,6 +907,7 @@ app.get('/api/notification-history', requireAuth, (req, res) => {
       scheduled_time AS scheduledTime,
       scheduled_date AS scheduledDate,
       event_type AS eventType,
+      message,
       created_at AS createdAt
     FROM notification_history
     WHERE user_id = ?

@@ -1,0 +1,8 @@
+path: /home/mansi/Desktop/mini_project/MedCheck_Combined
+
+train: images/train
+val: images/val
+
+names:
+  0: intact
+  1: broken
